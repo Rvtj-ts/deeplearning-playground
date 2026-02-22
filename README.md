@@ -26,14 +26,6 @@ bun run precompute:pca
 
 This updates `public/data/pca-presets.json` fetched by the React app at runtime.
 
-This repo also has a pre-commit hook that auto-runs PCA precompute when staged changes include:
-
-- `scripts/precompute-pca.ts`
-- `src/components/PCAViz.tsx`
-- `public/data/pca-presets.json`
-
-After running, it re-stages `public/data/pca-presets.json` automatically.
-
 ## Run with Bun
 
 1. Install Bun: https://bun.sh
