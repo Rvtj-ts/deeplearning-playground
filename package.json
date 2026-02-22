@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
     "preview": "vite preview",
     "precompute:pca": "bun run scripts/precompute-pca.ts"
   },
