@@ -6,6 +6,8 @@ Interactive React visualizations for common deep learning concepts:
 - Principal Component Analysis (PCA) on handwritten digits (MNIST subset, 784D -> kD compression)
 - Gradient Descent on a 2D loss surface
 - CNN feature flow on an image (sliding kernel, pooling compression, dropout over iterations)
+- RNN unrolled sequence flow (token-by-token memory state and next-token probabilities)
+- LLM attention flow (query-key attention matrix, context vector, and next-token probabilities)
 
 PCA page includes:
 

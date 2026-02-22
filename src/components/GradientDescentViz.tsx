@@ -191,6 +191,24 @@ export function GradientDescentViz() {
             <button className="ghost-btn" onClick={() => setVisibleStep(0)}>
               Reset
             </button>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setIsPlaying(false);
+                setVisibleStep((s) => Math.max(0, s - 1));
+              }}
+            >
+              Prev Step
+            </button>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setIsPlaying(false);
+                setVisibleStep((s) => Math.min(path.length - 1, s + 1));
+              }}
+            >
+              Next Step
+            </button>
           </div>
 
           <label>

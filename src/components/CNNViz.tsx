@@ -5,24 +5,62 @@ const KERNEL_SIZE = 3;
 
 type Matrix = number[][];
 
+type KernelDef = {
+  name: string;
+  description: string;
+  matrix: Matrix;
+  color: string;
+};
+
+const KERNELS: KernelDef[] = [
+  {
+    name: "Eye Spot Detector",
+    description: "Looks for compact bright spots (eye-like points).",
+    matrix: [
+      [0, -1, 0],
+      [-1, 4, -1],
+      [0, -1, 0],
+    ],
+    color: "#9fd2ff",
+  },
+  {
+    name: "Mouth Line Detector",
+    description: "Responds to horizontal bright lines (mouth-like strokes).",
+    matrix: [
+      [-1, -1, -1],
+      [2, 2, 2],
+      [-1, -1, -1],
+    ],
+    color: "#ffd79a",
+  },
+  {
+    name: "Face Edge Detector",
+    description: "Responds to vertical edge transitions around the face boundary.",
+    matrix: [
+      [-1, 0, 1],
+      [-1, 0, 1],
+      [-1, 0, 1],
+    ],
+    color: "#b0edc8",
+  },
+];
+
 function buildSampleImage() {
   const m = Array.from({ length: IMAGE_SIZE }, () => Array.from({ length: IMAGE_SIZE }, () => 0));
 
   for (let y = 2; y < IMAGE_SIZE - 2; y += 1) {
     for (let x = 2; x < IMAGE_SIZE - 2; x += 1) {
       const inFace = (x - 7) * (x - 7) + (y - 7) * (y - 7) <= 24;
-      if (inFace) m[y][x] = 0.2;
+      if (inFace) m[y][x] = 0.24;
     }
   }
 
   m[5][5] = 1;
   m[5][9] = 1;
-  m[9][4] = 0.9;
-  m[9][5] = 0.9;
-  m[9][6] = 0.9;
-  m[9][7] = 0.9;
-  m[9][8] = 0.9;
-  m[9][9] = 0.9;
+
+  for (let x = 4; x <= 9; x += 1) {
+    m[9][x] = 0.95;
+  }
 
   for (let i = 2; i < 12; i += 1) {
     m[i][2] = Math.max(m[i][2], 0.75);
@@ -34,7 +72,7 @@ function buildSampleImage() {
   return m;
 }
 
-function conv2d(image: Matrix, kernel: Matrix) {
+function conv2dSame(image: Matrix, kernel: Matrix) {
   const outSize = image.length;
   const pad = Math.floor(kernel.length / 2);
   const out = Array.from({ length: outSize }, () => Array.from({ length: outSize }, () => 0));
@@ -50,7 +88,7 @@ function conv2d(image: Matrix, kernel: Matrix) {
           sum += pixel * kernel[ky][kx];
         }
       }
-      out[y][x] = Math.abs(sum);
+      out[y][x] = Math.max(0, sum);
     }
   }
   return out;
@@ -82,7 +120,27 @@ function randUnit(seed: number) {
   return x - Math.floor(x);
 }
 
+function strongestPoints(map: Matrix, count = 3) {
+  const points: Array<{ x: number; y: number; v: number }> = [];
+  for (let y = 0; y < map.length; y += 1) {
+    for (let x = 0; x < map[0].length; x += 1) {
+      points.push({ x, y, v: map[y][x] });
+    }
+  }
+  points.sort((a, b) => b.v - a.v);
+
+  const out: Array<{ x: number; y: number; v: number }> = [];
+  for (const p of points) {
+    if (p.v <= 0) continue;
+    const farEnough = out.every((q) => Math.abs(q.x - p.x) + Math.abs(q.y - p.y) >= 3);
+    if (farEnough) out.push(p);
+    if (out.length >= count) break;
+  }
+  return out;
+}
+
 export function CNNViz() {
+  const [activeKernel, setActiveKernel] = useState(0);
   const [dropRate, setDropRate] = useState(0.35);
   const [scanPlaying, setScanPlaying] = useState(true);
   const [scanSpeed, setScanSpeed] = useState(160);
@@ -91,9 +149,13 @@ export function CNNViz() {
   const [iteration, setIteration] = useState(1);
 
   const image = useMemo(() => buildSampleImage(), []);
-  const kernel = useMemo<Matrix>(() => [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], []);
-  const convMap = useMemo(() => conv2d(image, kernel), [image, kernel]);
-  const pooled = useMemo(() => maxPool2x2(convMap), [convMap]);
+  const activeKernelDef = KERNELS[activeKernel];
+
+  const featureMaps = useMemo(() => KERNELS.map((k) => conv2dSame(image, k.matrix)), [image]);
+  const pooledMaps = useMemo(() => featureMaps.map((m) => maxPool2x2(m)), [featureMaps]);
+
+  const convMap = featureMaps[activeKernel];
+  const pooled = pooledMaps[activeKernel];
   const vector = useMemo(() => flatten(pooled), [pooled]);
 
   const scanPositions = useMemo(() => {
@@ -137,55 +199,57 @@ export function CNNViz() {
     let sum = 0;
     for (let y = 0; y < KERNEL_SIZE; y += 1) {
       for (let x = 0; x < KERNEL_SIZE; x += 1) {
-        sum += patch[y][x] * kernel[y][x];
+        sum += patch[y][x] * activeKernelDef.matrix[y][x];
       }
     }
-    return Math.abs(sum);
-  }, [patch, kernel]);
+    return Math.max(0, sum);
+  }, [patch, activeKernelDef]);
 
   const droppedMask = useMemo(() => {
     return vector.map((_, idx) => randUnit(iteration * 1000 + idx * 37) > dropRate);
   }, [vector, iteration, dropRate]);
 
   const keptCount = droppedMask.filter(Boolean).length;
-  const displayUnits = 42;
   const convMax = gridMax(convMap);
   const poolMax = gridMax(pooled);
+  const topPoints = useMemo(() => strongestPoints(convMap, 3), [convMap]);
 
   return (
     <section>
       <h2>CNN Feature Flow Visualizer</h2>
       <p className="subtext">
-        Watch a convolution kernel slide across an image, then see spatial compression (conv to pool to flatten) and dropout masks across training iterations. The feature map brightness shows edge-response strength, not raw pixels.
+        Instead of "raw pixels", each conv map is a feature detector. Use the detector selector to show eyes, mouth line, and face-edge evidence separately.
       </p>
 
       <div className="explain-card">
         <strong>How to explain this slide</strong>
-        <span>1) Kernel scans local patches and computes a weighted sum.</span>
-        <span>2) Each feature-map cell stores pattern strength at that location (not pixel value).</span>
-        <span>3) Pooling keeps strongest local responses, shrinking spatial size.</span>
-        <span>4) Dropout randomly disables units per iteration to improve generalization.</span>
+        <span>1) Choose a detector (eye, mouth, or edge).</span>
+        <span>2) Bright cells in the conv map mean this feature is present there.</span>
+        <span>3) "Top activations" are the model's strongest evidence locations.</span>
+        <span>4) Pooling and dropout keep signal while improving robustness.</span>
+      </div>
+
+      <div className="cnn-kernel-row">
+        {KERNELS.map((k, idx) => (
+          <button key={k.name} className={idx === activeKernel ? "tab tab-active" : "tab"} onClick={() => setActiveKernel(idx)}>
+            {k.name}
+          </button>
+        ))}
       </div>
 
       <div className="cnn-layout">
         <div className="cnn-main">
           <div>
             <h3>Input Image + Sliding Kernel</h3>
-            <div
-              className="cnn-grid"
-              style={{ gridTemplateColumns: `repeat(${IMAGE_SIZE}, 1fr)` }}
-            >
+            <div className="cnn-grid" style={{ gridTemplateColumns: `repeat(${IMAGE_SIZE}, 1fr)` }}>
               {image.flatMap((row, y) =>
                 row.map((value, x) => {
-                  const inWindow =
-                    x >= scanPos.x &&
-                    x < scanPos.x + KERNEL_SIZE &&
-                    y >= scanPos.y &&
-                    y < scanPos.y + KERNEL_SIZE;
+                  const inWindow = x >= scanPos.x && x < scanPos.x + KERNEL_SIZE && y >= scanPos.y && y < scanPos.y + KERNEL_SIZE;
+                  const isTop = topPoints.some((p) => p.x === x && p.y === y);
                   return (
                     <div
                       key={`${x}-${y}`}
-                      className={inWindow ? "cnn-cell cnn-window" : "cnn-cell"}
+                      className={inWindow ? "cnn-cell cnn-window" : isTop ? "cnn-cell cnn-cell-focus" : "cnn-cell"}
                       style={{ background: `rgba(148, 218, 255, ${0.08 + value * 0.92})` }}
                     />
                   );
@@ -195,16 +259,17 @@ export function CNNViz() {
           </div>
 
           <div>
-            <h3>Conv Feature Map (14x14, absolute response)</h3>
+            <h3>Conv Feature Map ({IMAGE_SIZE}x{IMAGE_SIZE})</h3>
             <div className="cnn-grid" style={{ gridTemplateColumns: `repeat(${convMap.length}, 1fr)` }}>
               {convMap.flatMap((row, y) =>
                 row.map((value, x) => {
                   const isFocus = x === scanPos.x + 1 && y === scanPos.y + 1;
+                  const isTop = topPoints.some((p) => p.x === x && p.y === y);
                   return (
                     <div
                       key={`conv-${x}-${y}`}
-                      className={isFocus ? "cnn-cell cnn-cell-focus" : "cnn-cell"}
-                      style={{ background: `rgba(255, 204, 128, ${0.06 + (value / convMax) * 0.94})` }}
+                      className={isFocus || isTop ? "cnn-cell cnn-cell-focus" : "cnn-cell"}
+                      style={{ background: `color-mix(in srgb, ${activeKernelDef.color} ${(6 + (value / convMax) * 94).toFixed(1)}%, #0f2430)` }}
                     />
                   );
                 }),
@@ -226,12 +291,38 @@ export function CNNViz() {
               )}
             </div>
             <div className="cnn-compress">
-              {IMAGE_SIZE}x{IMAGE_SIZE} to {convMap.length}x{convMap.length} to {pooled.length}x{pooled.length} to {vector.length}
+              Per channel: {IMAGE_SIZE}x{IMAGE_SIZE} to {pooled.length}x{pooled.length} to {vector.length}
+              <br />
+              Three detectors to final features from three channels.
             </div>
           </div>
         </div>
 
         <div className="controls">
+          <div className="formula-block">
+            <strong>{activeKernelDef.name}</strong>
+            <br />
+            {activeKernelDef.description}
+            <div className="cnn-kernel-mini">
+              {activeKernelDef.matrix.flatMap((row, y) =>
+                row.map((v, x) => (
+                  <div key={`k-${x}-${y}`} className="cnn-kernel-weight">
+                    {v}
+                  </div>
+                )),
+              )}
+            </div>
+          </div>
+
+          <div className="formula-block">
+            Top activations (where feature is strongest)
+            {topPoints.map((p, i) => (
+              <div key={i}>
+                #{i + 1}: ({p.x}, {p.y}) strength {p.v.toFixed(2)}
+              </div>
+            ))}
+          </div>
+
           <div className="preset-row">
             <button className="ghost-btn" onClick={() => setScanPlaying((v) => !v)}>
               {scanPlaying ? "Pause Scan" : "Play Scan"}
@@ -239,11 +330,44 @@ export function CNNViz() {
             <button className="ghost-btn" onClick={() => setIterPlaying((v) => !v)}>
               {iterPlaying ? "Pause Training" : "Play Training"}
             </button>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setScanPlaying(false);
+                setScanIndex((i) => (i - 1 + scanPositions.length) % scanPositions.length);
+              }}
+            >
+              Prev Scan
+            </button>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setScanPlaying(false);
+                setScanIndex((i) => (i + 1) % scanPositions.length);
+              }}
+            >
+              Next Scan
+            </button>
           </div>
 
           <label>
             Scan speed: {scanSpeed} ms
             <input type="range" min={60} max={400} step={10} value={scanSpeed} onChange={(e) => setScanSpeed(Number(e.target.value))} />
+          </label>
+
+          <label>
+            Scan index: {scanIndex + 1}/{scanPositions.length}
+            <input
+              type="range"
+              min={0}
+              max={scanPositions.length - 1}
+              step={1}
+              value={scanIndex}
+              onChange={(e) => {
+                setScanPlaying(false);
+                setScanIndex(Number(e.target.value));
+              }}
+            />
           </label>
 
           <label>
@@ -267,19 +391,9 @@ export function CNNViz() {
           </div>
 
           <div className="formula-block">
-            Presenter notes
-            <br />
-            - Bright in conv map means strong edge-like pattern match.
-            <br />
-            - Dim means weak/no match.
-            <br />
-            - Spatial info shrinks, but key features remain.
-          </div>
-
-          <div className="formula-block">
             Dropout mask sample
             <div className="cnn-dropout-row">
-              {vector.slice(0, displayUnits).map((v, i) => {
+              {vector.slice(0, 42).map((v, i) => {
                 const on = droppedMask[i];
                 return (
                   <div

@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { CNNViz } from "./components/CNNViz";
 import { GradientDescentViz } from "./components/GradientDescentViz";
+import { LLMFlowViz } from "./components/LLMFlowViz";
+import { LLMViz } from "./components/LLMViz";
 import { PCAViz } from "./components/PCAViz";
+import { RNNViz } from "./components/RNNViz";
 import { SVDViz } from "./components/SVDViz";
 
 const concepts = [
@@ -9,6 +12,9 @@ const concepts = [
   { id: "pca", label: "PCA" },
   { id: "gd", label: "Gradient Descent" },
   { id: "cnn", label: "CNN" },
+  { id: "rnn", label: "RNN" },
+  { id: "llm", label: "LLM" },
+  { id: "llmflow", label: "LLM Flow" },
 ] as const;
 
 type ConceptId = (typeof concepts)[number]["id"];
@@ -23,7 +29,7 @@ export default function App() {
         <p>
           Interactive intuition builders for your presentation: matrix
           factorization, dimensionality reduction on handwritten digit data, and
-          optimization, and CNN feature learning.
+          optimization, plus CNN, RNN, and LLM attention.
         </p>
       </header>
 
@@ -44,6 +50,9 @@ export default function App() {
         {active === "pca" && <PCAViz />}
         {active === "gd" && <GradientDescentViz />}
         {active === "cnn" && <CNNViz />}
+        {active === "rnn" && <RNNViz />}
+        {active === "llm" && <LLMViz />}
+        {active === "llmflow" && <LLMFlowViz />}
       </main>
     </div>
   );
