@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "start": "serve -s dist -l tcp://0.0.0.0:${PORT:-4173}",
+    "start": "serve -s dist -l ${PORT:-4173}",
     "preview": "vite preview",
     "precompute:pca": "bun run scripts/precompute-pca.ts",
     "precommit:pca": "bun run scripts/precommit-pca.js",
