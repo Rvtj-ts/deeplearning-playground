@@ -1,168 +1,266 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SVD } from "svd-js";
 
-type Point = [number, number];
-type Matrix2 = [[number, number], [number, number]];
+const N = 14;
 
-const WIDTH = 520;
-const HEIGHT = 520;
-const SCALE = 120;
+type Matrix = number[][];
 
-function mulMatVec(m: Matrix2, v: Point): Point {
-  return [m[0][0] * v[0] + m[0][1] * v[1], m[1][0] * v[0] + m[1][1] * v[1]];
-}
+function buildFaceMatrix() {
+  const m = Array.from({ length: N }, () => Array.from({ length: N }, () => 0));
 
-function transpose(m: Matrix2): Matrix2 {
-  return [
-    [m[0][0], m[1][0]],
-    [m[0][1], m[1][1]],
-  ];
-}
-
-function lerp(a: Point, b: Point, t: number): Point {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-}
-
-function pointToSvg([x, y]: Point): Point {
-  return [WIDTH / 2 + x * SCALE, HEIGHT / 2 - y * SCALE];
-}
-
-function buildCirclePoints(samples = 100): Point[] {
-  const points: Point[] = [];
-  for (let i = 0; i <= samples; i += 1) {
-    const t = (i / samples) * Math.PI * 2;
-    points.push([Math.cos(t), Math.sin(t)]);
+  for (let y = 2; y < N - 2; y += 1) {
+    for (let x = 2; x < N - 2; x += 1) {
+      const inFace = (x - 7) * (x - 7) + (y - 7) * (y - 7) <= 24;
+      if (inFace) m[y][x] = 0.22;
+    }
   }
-  return points;
+
+  m[5][5] = 1;
+  m[5][9] = 1;
+
+  for (let x = 4; x <= 9; x += 1) {
+    m[9][x] = 0.95;
+  }
+
+  for (let i = 2; i < 12; i += 1) {
+    m[i][2] = Math.max(m[i][2], 0.74);
+    m[i][11] = Math.max(m[i][11], 0.74);
+    m[2][i] = Math.max(m[2][i], 0.74);
+    m[11][i] = Math.max(m[11][i], 0.74);
+  }
+
+  return m;
 }
 
-function pointsToPath(points: Point[]): string {
-  return points
-    .map((p, i) => {
-      const [x, y] = pointToSvg(p);
-      return `${i === 0 ? "M" : "L"} ${x} ${y}`;
-    })
-    .join(" ");
+function reconstruct(u: number[][], s: number[], v: number[][], k: number) {
+  const out = Array.from({ length: N }, () => Array.from({ length: N }, () => 0));
+  const use = Math.min(k, s.length);
+  for (let y = 0; y < N; y += 1) {
+    for (let x = 0; x < N; x += 1) {
+      let sum = 0;
+      for (let i = 0; i < use; i += 1) {
+        sum += s[i] * u[y][i] * v[x][i];
+      }
+      out[y][x] = Math.max(0, Math.min(1, sum));
+    }
+  }
+  return out;
 }
 
-function formatMatrix(m: Matrix2): string {
-  return `[${m[0][0].toFixed(2)} ${m[0][1].toFixed(2)}; ${m[1][0].toFixed(2)} ${m[1][1].toFixed(2)}]`;
+function residual(a: Matrix, b: Matrix) {
+  return a.map((row, y) => row.map((v, x) => Math.abs(v - b[y][x])));
+}
+
+function cumulativeEnergy(s: number[], k: number) {
+  const total = s.reduce((acc, v) => acc + v * v, 0);
+  const partial = s.slice(0, k).reduce((acc, v) => acc + v * v, 0);
+  return total <= 1e-9 ? 0 : partial / total;
+}
+
+function componentMap(u: number[][], s: number[], v: number[][], idx: number) {
+  const i = Math.max(0, Math.min(idx, s.length - 1));
+  const m = Array.from({ length: N }, () => Array.from({ length: N }, () => 0));
+  for (let y = 0; y < N; y += 1) {
+    for (let x = 0; x < N; x += 1) {
+      m[y][x] = s[i] * u[y][i] * v[x][i];
+    }
+  }
+  return m;
+}
+
+function matrixMax(m: Matrix) {
+  return Math.max(1e-6, ...m.flat());
+}
+
+function matrixAbsMax(m: Matrix) {
+  return Math.max(1e-6, ...m.flat().map((v) => Math.abs(v)));
 }
 
 export function SVDViz() {
-  const [a, setA] = useState(1.2);
-  const [b, setB] = useState(0.6);
-  const [c, setC] = useState(-0.3);
-  const [d, setD] = useState(1.4);
-  const [progress, setProgress] = useState(1);
-  const matrixControls: Array<{
-    name: string;
-    value: number;
-    setter: (v: number) => void;
-  }> = [
-    { name: "a", value: a, setter: setA },
-    { name: "b", value: b, setter: setB },
-    { name: "c", value: c, setter: setC },
-    { name: "d", value: d, setter: setD },
-  ];
+  const [k, setK] = useState(4);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(750);
+  const [selectedComp, setSelectedComp] = useState(1);
 
-  const matrixA = useMemo<Matrix2>(() => [[a, b], [c, d]], [a, b, c, d]);
-  const svd = useMemo(() => SVD(matrixA), [matrixA]);
+  const image = useMemo(() => buildFaceMatrix(), []);
+  const svd = useMemo(() => SVD(image), [image]);
+  const u = svd.u as number[][];
+  const v = svd.v as number[][];
+  const s = svd.q;
+  const maxRank = s.length;
 
-  const U = svd.u as Matrix2;
-  const V = svd.v as Matrix2;
-  const sigma = svd.q;
-  const sigmaM: Matrix2 = [
-    [sigma[0], 0],
-    [0, sigma[1]],
-  ];
-  const VT = transpose(V);
+  useEffect(() => {
+    if (!playing) return;
+    const timer = window.setInterval(() => {
+      setK((curr) => (curr >= maxRank ? 1 : curr + 1));
+    }, speed);
+    return () => window.clearInterval(timer);
+  }, [playing, speed, maxRank]);
 
-  const displayPath = useMemo(() => {
-    const circle = buildCirclePoints();
-    const transformed = circle.map((p) => {
-      const vStage = mulMatVec(VT, p);
-      const sStage = mulMatVec(sigmaM, vStage);
-      const uStage = mulMatVec(U, sStage);
+  const recon = useMemo(() => reconstruct(u, s, v, k), [u, s, v, k]);
+  const err = useMemo(() => residual(image, recon), [image, recon]);
+  const comp = useMemo(() => componentMap(u, s, v, selectedComp - 1), [u, s, v, selectedComp]);
 
-      if (progress <= 1 / 3) {
-        return lerp(p, vStage, progress * 3);
-      }
-      if (progress <= 2 / 3) {
-        return lerp(vStage, sStage, (progress - 1 / 3) * 3);
-      }
-      return lerp(sStage, uStage, (progress - 2 / 3) * 3);
-    });
-    return pointsToPath(transformed);
-  }, [U, VT, progress, sigmaM]);
+  const reconMax = matrixMax(recon);
+  const errMax = matrixMax(err);
+  const compMax = matrixAbsMax(comp);
 
   return (
     <section>
-      <h2>SVD Visualizer</h2>
+      <h2>SVD Insight Visualizer</h2>
       <p className="subtext">
-        A matrix transform can be split into <code>V^T</code> (rotation),
-        <code>Sigma</code> (stretch), and <code>U</code> (rotation).
+        Real SVD decomposition of an image-like matrix. Build rank-k reconstruction progressively to show how a few singular components keep most structure.
       </p>
 
-      <div className="viz-layout">
-        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="viz-canvas">
-          <rect x="0" y="0" width={WIDTH} height={HEIGHT} fill="url(#bgGrid)" />
-          <defs>
-            <pattern id="bgGrid" width="26" height="26" patternUnits="userSpaceOnUse">
-              <path d="M 26 0 L 0 0 0 26" fill="none" stroke="#2a3f4f" strokeWidth="1" />
-            </pattern>
-          </defs>
-          <line
-            x1={WIDTH / 2}
-            y1={0}
-            x2={WIDTH / 2}
-            y2={HEIGHT}
-            stroke="#6ea8c6"
-            strokeOpacity="0.5"
-          />
-          <line
-            x1={0}
-            y1={HEIGHT / 2}
-            x2={WIDTH}
-            y2={HEIGHT / 2}
-            stroke="#6ea8c6"
-            strokeOpacity="0.5"
-          />
+      <div className="explain-card">
+        <strong>How to explain this slide</strong>
+        <span>1) Original image is a matrix A.</span>
+        <span>2) SVD splits A into ordered components by strength (singular values).</span>
+        <span>3) Keep only first k components to compress data.</span>
+        <span>4) Residual map shows what information gets lost.</span>
+      </div>
 
-          <path d={displayPath} fill="none" stroke="#ffd07b" strokeWidth="3" />
-        </svg>
+      <div className="svd-layout">
+        <div className="svd-panels">
+          <div>
+            <h3>Original Matrix A</h3>
+            <div className="svd-grid" style={{ gridTemplateColumns: `repeat(${N}, 1fr)` }}>
+              {image.flatMap((row, y) =>
+                row.map((value, x) => (
+                  <div key={`o-${x}-${y}`} className="svd-cell" style={{ background: `rgba(149, 215, 255, ${0.06 + value * 0.94})` }} />
+                )),
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3>Rank-{k} Reconstruction</h3>
+            <div className="svd-grid" style={{ gridTemplateColumns: `repeat(${N}, 1fr)` }}>
+              {recon.flatMap((row, y) =>
+                row.map((value, x) => (
+                  <div
+                    key={`r-${x}-${y}`}
+                    className="svd-cell"
+                    style={{ background: `rgba(255, 208, 132, ${0.06 + (value / reconMax) * 0.94})` }}
+                  />
+                )),
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3>Residual |A - A_k|</h3>
+            <div className="svd-grid" style={{ gridTemplateColumns: `repeat(${N}, 1fr)` }}>
+              {err.flatMap((row, y) =>
+                row.map((value, x) => (
+                  <div
+                    key={`e-${x}-${y}`}
+                    className="svd-cell"
+                    style={{ background: `rgba(255, 136, 136, ${0.05 + (value / errMax) * 0.95})` }}
+                  />
+                )),
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3>Component #{selectedComp}: sigma * u_i * v_i^T</h3>
+            <div className="svd-grid" style={{ gridTemplateColumns: `repeat(${N}, 1fr)` }}>
+              {comp.flatMap((row, y) =>
+                row.map((value, x) => {
+                  const t = Math.abs(value) / compMax;
+                  const color = value >= 0 ? `rgba(255, 196, 110, ${0.1 + t * 0.9})` : `rgba(124, 194, 255, ${0.1 + t * 0.9})`;
+                  return <div key={`c-${x}-${y}`} className="svd-cell" style={{ background: color }} />;
+                }),
+              )}
+            </div>
+          </div>
+        </div>
 
         <div className="controls">
+          <div className="preset-row">
+            <button className="ghost-btn" onClick={() => setPlaying((v) => !v)}>
+              {playing ? "Pause" : "Play"}
+            </button>
+            <button className="ghost-btn" onClick={() => setK(1)}>
+              Reset
+            </button>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setPlaying(false);
+                setK((v) => Math.max(1, v - 1));
+              }}
+            >
+              Prev k
+            </button>
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setPlaying(false);
+                setK((v) => Math.min(maxRank, v + 1));
+              }}
+            >
+              Next k
+            </button>
+          </div>
+
           <label>
-            Animation Progress: {progress.toFixed(2)}
+            Rank k: {k}
             <input
               type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={progress}
-              onChange={(e) => setProgress(Number(e.target.value))}
+              min={1}
+              max={maxRank}
+              step={1}
+              value={k}
+              onChange={(e) => {
+                setPlaying(false);
+                setK(Number(e.target.value));
+              }}
             />
           </label>
 
-          {matrixControls.map(({ name, value, setter }) => (
-            <label key={name}>
-              {name} = {value.toFixed(2)}
-              <input
-                type="range"
-                min={-2}
-                max={2}
-                step={0.01}
-                value={value}
-                onChange={(e) => setter(Number(e.target.value))}
-              />
-            </label>
-          ))}
+          <label>
+            Component to inspect: {selectedComp}
+            <input
+              type="range"
+              min={1}
+              max={maxRank}
+              step={1}
+              value={selectedComp}
+              onChange={(e) => setSelectedComp(Number(e.target.value))}
+            />
+          </label>
+
+          <label>
+            Auto-play speed: {speed} ms
+            <input type="range" min={250} max={1500} step={20} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} />
+          </label>
 
           <div className="formula-block">
-            <div>A = {formatMatrix(matrixA)}</div>
-            <div>sigma1 = {sigma[0].toFixed(3)}</div>
-            <div>sigma2 = {sigma[1].toFixed(3)}</div>
+            Compression ratio: {((k / (N * N)) * 100).toFixed(2)}% of raw entries (conceptual)
+            <br />
+            Energy kept by first {k}: {(cumulativeEnergy(s, k) * 100).toFixed(1)}%
+            <br />
+            sigma_{selectedComp}: {s[selectedComp - 1].toFixed(3)}
+          </div>
+
+          <div className="formula-block">
+            Singular value spectrum
+            <div className="svd-bars">
+              {s.map((sv, i) => {
+                const pct = (sv / (s[0] + 1e-9)) * 100;
+                return (
+                  <div key={i} className="svd-bar-row">
+                    <span>#{i + 1}</span>
+                    <div className="svd-bar-wrap">
+                      <div className={i < k ? "svd-bar svd-bar-active" : "svd-bar"} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span>{sv.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
