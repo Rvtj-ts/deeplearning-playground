@@ -7,13 +7,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
+    "start": "serve -s dist -l tcp://0.0.0.0:${PORT:-4173}",
     "preview": "vite preview",
-    "precompute:pca": "bun run scripts/precompute-pca.ts"
+    "precompute:pca": "bun run scripts/precompute-pca.ts",
+    "precommit:pca": "bun run scripts/precommit-pca.js",
+    "postinstall": "simple-git-hooks"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "serve": "^14.2.5",
     "svd-js": "^1.1.1"
   },
   "devDependencies": {
@@ -21,7 +24,11 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
     "mnist": "^1.1.0",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.1"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bun run precommit:pca"
   }
 }

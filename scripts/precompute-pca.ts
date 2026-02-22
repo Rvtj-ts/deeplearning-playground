@@ -223,5 +223,5 @@ const artifact = {
   knnAccuracy,
 };
 
-await Bun.write("src/data/pca-presets.json", JSON.stringify(artifact));
-console.log("Wrote src/data/pca-presets.json");
+await Bun.write("public/data/pca-presets.json", JSON.stringify(artifact));
+console.log("Wrote public/data/pca-presets.json");

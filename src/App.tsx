@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { CNNViz } from "./components/CNNViz";
 import { GradientDescentViz } from "./components/GradientDescentViz";
 import { LLMFlowViz } from "./components/LLMFlowViz";
 import { LLMViz } from "./components/LLMViz";
-import { PCAViz } from "./components/PCAViz";
 import { RNNViz } from "./components/RNNViz";
 import { SVDViz } from "./components/SVDViz";
+
+const PCAViz = lazy(() => import("./components/PCAViz").then((module) => ({ default: module.PCAViz })));
 
 const concepts = [
   { id: "svd", label: "SVD" },
@@ -47,7 +48,11 @@ export default function App() {
 
       <main className="panel">
         {active === "svd" && <SVDViz />}
-        {active === "pca" && <PCAViz />}
+        {active === "pca" && (
+          <Suspense fallback={<p className="subtext">Loading PCA module...</p>}>
+            <PCAViz />
+          </Suspense>
+        )}
         {active === "gd" && <GradientDescentViz />}
         {active === "cnn" && <CNNViz />}
         {active === "rnn" && <RNNViz />}

@@ -24,7 +24,15 @@ To regenerate PCA artifacts from MNIST:
 bun run precompute:pca
 ```
 
-This updates `src/data/pca-presets.json` used by the React app at runtime.
+This updates `public/data/pca-presets.json` fetched by the React app at runtime.
+
+This repo also has a pre-commit hook that auto-runs PCA precompute when staged changes include:
+
+- `scripts/precompute-pca.ts`
+- `src/components/PCAViz.tsx`
+- `public/data/pca-presets.json`
+
+After running, it re-stages `public/data/pca-presets.json` automatically.
 
 ## Run with Bun
 
@@ -46,3 +54,18 @@ bun run dev
 ```bash
 bun run build
 ```
+
+## Deploy to Railway
+
+This app is configured to deploy as a static site:
+
+- Build command: `bun run build`
+- Start command: `bun run start`
+- Production server: `serve` serving `dist/` on `0.0.0.0:$PORT`
+
+Railway steps:
+
+1. Push repo to GitHub.
+2. Create a Railway project from the repo.
+3. Railway will use `railway.toml` for build/start.
+4. Generate a domain in Railway.

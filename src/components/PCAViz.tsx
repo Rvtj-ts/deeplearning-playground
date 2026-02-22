@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import pcaData from "../data/pca-presets.json";
+import { useEffect, useMemo, useState } from "react";
 
 const SCATTER_W = 520;
 const SCATTER_H = 360;
@@ -27,7 +26,6 @@ type PcaArtifact = {
   knnAccuracy: Record<PresetKey, number>;
 };
 
-const data = pcaData as PcaArtifact;
 const presets: Array<{ key: PresetKey; label: string }> = [
   { key: "6", label: "6 PCs" },
   { key: "12", label: "12 PCs" },
@@ -89,9 +87,55 @@ function addScaled(base: number[], direction: number[], scale: number) {
 }
 
 export function PCAViz() {
+  const [data, setData] = useState<PcaArtifact | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [preset, setPreset] = useState<PresetKey>("12");
   const [sampleIndex, setSampleIndex] = useState(0);
   const [selectedPc, setSelectedPc] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    fetch("/data/pca-presets.json")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load PCA presets (${response.status})`);
+        }
+        return response.json() as Promise<PcaArtifact>;
+      })
+      .then((artifact) => {
+        if (active) {
+          setData(artifact);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setLoadError(error instanceof Error ? error.message : "Failed to load PCA presets");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (loadError) {
+    return (
+      <section>
+        <h2>PCA on Handwritten Digits</h2>
+        <p className="subtext">Could not load PCA presets: {loadError}</p>
+      </section>
+    );
+  }
+
+  if (!data) {
+    return (
+      <section>
+        <h2>PCA on Handwritten Digits</h2>
+        <p className="subtext">Loading PCA presets...</p>
+      </section>
+    );
+  }
 
   const sampleCount = data.testVectors.length;
   const selectedIndex = Math.min(sampleIndex, sampleCount - 1);
