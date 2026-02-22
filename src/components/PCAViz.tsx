@@ -119,6 +119,9 @@ export function PCAViz() {
     };
   }, []);
 
+  const xVals = useMemo(() => (data ? data.scatter.map((p) => p.x) : []), [data]);
+  const yVals = useMemo(() => (data ? data.scatter.map((p) => p.y) : []), [data]);
+
   if (loadError) {
     return (
       <section>
@@ -144,8 +147,6 @@ export function PCAViz() {
   const reconstructed = data.reconstructions[preset][selectedIndex];
   const label = data.testLabels[selectedIndex];
 
-  const xVals = useMemo(() => data.scatter.map((p) => p.x), []);
-  const yVals = useMemo(() => data.scatter.map((p) => p.y), []);
   const xMin = Math.min(...xVals);
   const xMax = Math.max(...xVals);
   const yMin = Math.min(...yVals);
