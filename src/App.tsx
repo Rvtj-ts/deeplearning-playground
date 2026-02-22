@@ -87,6 +87,7 @@ function updateUrlTab(tab: ConceptId, replace: boolean) {
 
 export default function App() {
   const [active, setActive] = useState<ConceptId>(() => getTabFromUrl());
+  const [hasVisitedPca, setHasVisitedPca] = useState<boolean>(() => getTabFromUrl() === "pca");
 
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("tab");
@@ -108,6 +109,12 @@ export default function App() {
     setActive(tab);
     updateUrlTab(tab, false);
   };
+
+  useEffect(() => {
+    if (active === "pca") {
+      setHasVisitedPca(true);
+    }
+  }, [active]);
 
   return (
     <div className="page">
@@ -134,12 +141,14 @@ export default function App() {
 
       <main className="panel">
         {active === "svd" && <SVDViz />}
-        {active === "pca" && (
-          <LazyChunkBoundary>
-            <Suspense fallback={<p className="subtext">Loading PCA module...</p>}>
-              <PCAViz />
-            </Suspense>
-          </LazyChunkBoundary>
+        {hasVisitedPca && (
+          <div style={{ display: active === "pca" ? "block" : "none" }}>
+            <LazyChunkBoundary>
+              <Suspense fallback={<p className="subtext">Loading PCA module...</p>}>
+                <PCAViz />
+              </Suspense>
+            </LazyChunkBoundary>
+          </div>
         )}
         {active === "gd" && <GradientDescentViz />}
         {active === "cnn" && <CNNViz />}

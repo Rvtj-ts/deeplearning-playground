@@ -26,6 +26,36 @@ type PcaArtifact = {
   knnAccuracy: Record<PresetKey, number>;
 };
 
+let pcaDataCache: PcaArtifact | null = null;
+let pcaDataPromise: Promise<PcaArtifact> | null = null;
+
+function loadPcaArtifact() {
+  if (pcaDataCache) {
+    return Promise.resolve(pcaDataCache);
+  }
+  if (pcaDataPromise) {
+    return pcaDataPromise;
+  }
+
+  pcaDataPromise = fetch("/data/pca-presets.json")
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to load PCA presets (${response.status})`);
+      }
+      return response.json() as Promise<PcaArtifact>;
+    })
+    .then((artifact) => {
+      pcaDataCache = artifact;
+      return artifact;
+    })
+    .catch((error) => {
+      pcaDataPromise = null;
+      throw error;
+    });
+
+  return pcaDataPromise;
+}
+
 const presets: Array<{ key: PresetKey; label: string }> = [
   { key: "6", label: "6 PCs" },
   { key: "12", label: "12 PCs" },
@@ -87,7 +117,7 @@ function addScaled(base: number[], direction: number[], scale: number) {
 }
 
 export function PCAViz() {
-  const [data, setData] = useState<PcaArtifact | null>(null);
+  const [data, setData] = useState<PcaArtifact | null>(() => pcaDataCache);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preset, setPreset] = useState<PresetKey>("12");
   const [sampleIndex, setSampleIndex] = useState(0);
@@ -96,13 +126,7 @@ export function PCAViz() {
   useEffect(() => {
     let active = true;
 
-    fetch("/data/pca-presets.json")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Failed to load PCA presets (${response.status})`);
-        }
-        return response.json() as Promise<PcaArtifact>;
-      })
+    loadPcaArtifact()
       .then((artifact) => {
         if (active) {
           setData(artifact);
