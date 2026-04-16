@@ -1,6 +1,7 @@
 import { Component, type ComponentType, type ErrorInfo, type ReactNode, Suspense, lazy, useEffect, useState } from "react";
 import { CNNViz } from "./components/CNNViz";
 import { GradientDescentViz } from "./components/GradientDescentViz";
+import { ReLUViz } from "./components/ReLUViz";
 import { LLMFlowViz } from "./components/LLMFlowViz";
 import { LLMViz } from "./components/LLMViz";
 import { RNNViz } from "./components/RNNViz";
@@ -53,6 +54,7 @@ const concepts = [
   { id: "svd", label: "SVD" },
   { id: "pca", label: "PCA" },
   { id: "gd", label: "Gradient Descent" },
+  { id: "relu", label: "Activations" },
   { id: "cnn", label: "CNN" },
   { id: "rnn", label: "RNN" },
   { id: "llm", label: "LLM" },
@@ -151,6 +153,7 @@ export default function App() {
           </div>
         )}
         {active === "gd" && <GradientDescentViz />}
+        {active === "relu" && <ReLUViz />}
         {active === "cnn" && <CNNViz />}
         {active === "rnn" && <RNNViz />}
         {active === "llm" && <LLMViz />}
