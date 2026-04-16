@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import GIF from "gif.js";
 
 type Vec2 = { x: number; y: number };
 type Vec3 = { x: number; y: number; z: number };
@@ -127,6 +128,9 @@ export function GradientDescentViz() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [speedMs, setSpeedMs] = useState(180);
   const [visibleStep, setVisibleStep] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   const sgdPath = useMemo(
     () => runSGD({ x: startX, y: startY }, lr, steps),
@@ -243,6 +247,103 @@ export function GradientDescentViz() {
     pitch,
   );
 
+  const exportGif = async () => {
+    const svgEl = svgRef.current;
+    if (!svgEl || isExporting) return;
+
+    const wasPlaying = isPlaying;
+    const savedStep = visibleStep;
+    setIsPlaying(false);
+    setIsExporting(true);
+    setExportProgress(0);
+
+    const gif = new GIF({
+      workers: 2,
+      quality: 10,
+      width: WIDTH,
+      height: HEIGHT,
+      workerScript: new URL("gif.worker.js", document.baseURI).href,
+      background: "#f5f7fb",
+    });
+
+    const frameDelay = Math.max(60, speedMs);
+
+    try {
+      for (let step = 0; step <= maxStep; step += 1) {
+        setVisibleStep(step);
+        // Wait two animation frames so React commits and the browser paints
+        // the updated SVG before we serialize it.
+        await new Promise<void>((r) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => r()));
+        });
+
+        const serialized = new XMLSerializer().serializeToString(svgEl);
+        const svgBlob = new Blob([serialized], {
+          type: "image/svg+xml;charset=utf-8",
+        });
+        const svgUrl = URL.createObjectURL(svgBlob);
+
+        try {
+          const img = new Image();
+          img.width = WIDTH;
+          img.height = HEIGHT;
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () =>
+              reject(new Error("Failed to rasterize frame"));
+            img.src = svgUrl;
+          });
+
+          const canvas = document.createElement("canvas");
+          canvas.width = WIDTH;
+          canvas.height = HEIGHT;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) continue;
+          ctx.fillStyle = "#f5f7fb";
+          ctx.fillRect(0, 0, WIDTH, HEIGHT);
+          ctx.drawImage(img, 0, 0, WIDTH, HEIGHT);
+
+          gif.addFrame(ctx, { copy: true, delay: frameDelay });
+        } finally {
+          URL.revokeObjectURL(svgUrl);
+        }
+
+        // Capture progress takes the first half of the reported bar.
+        setExportProgress(((step + 1) / (maxStep + 1)) * 0.5);
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        gif.on("progress", (p: number) => setExportProgress(0.5 + p * 0.5));
+        gif.on("finished", (blob: Blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "gradient-descent-adam.gif";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          resolve();
+        });
+        try {
+          gif.render();
+        } catch (e) {
+          reject(e);
+        }
+      });
+    } catch (err) {
+      console.error("GIF export failed", err);
+      window.alert(
+        "GIF export failed. The browser console has details — this can happen if the tab is backgrounded during capture.",
+      );
+    } finally {
+      setVisibleStep(savedStep);
+      setIsExporting(false);
+      setExportProgress(0);
+      if (wasPlaying) setIsPlaying(true);
+    }
+  };
+
   return (
     <section>
       <h2>Gradient Descent &amp; Adam Optimizer</h2>
@@ -255,7 +356,14 @@ export function GradientDescentViz() {
       </p>
 
       <div className="viz-layout">
-        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="viz-canvas">
+        <svg
+          ref={svgRef}
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          width={WIDTH}
+          height={HEIGHT}
+          className="viz-canvas"
+        >
           <rect width={WIDTH} height={HEIGHT} fill="#f5f7fb" />
 
           {quads.map((q, i) => (
@@ -363,7 +471,11 @@ export function GradientDescentViz() {
 
         <div className="controls">
           <div className="preset-row">
-            <button className="ghost-btn" onClick={() => setIsPlaying((v) => !v)}>
+            <button
+              className="ghost-btn"
+              onClick={() => setIsPlaying((v) => !v)}
+              disabled={isExporting}
+            >
               {isPlaying ? "Pause" : "Play"}
             </button>
             <button
@@ -372,6 +484,7 @@ export function GradientDescentViz() {
                 setIsPlaying(false);
                 setVisibleStep(0);
               }}
+              disabled={isExporting}
             >
               Reset
             </button>
@@ -381,6 +494,7 @@ export function GradientDescentViz() {
                 setIsPlaying(false);
                 setVisibleStep((s) => Math.max(0, s - 1));
               }}
+              disabled={isExporting}
             >
               Prev
             </button>
@@ -390,8 +504,23 @@ export function GradientDescentViz() {
                 setIsPlaying(false);
                 setVisibleStep((s) => Math.min(maxStep, s + 1));
               }}
+              disabled={isExporting}
             >
               Next
+            </button>
+          </div>
+
+          <div className="preset-row">
+            <button
+              className="ghost-btn"
+              onClick={exportGif}
+              disabled={isExporting}
+              style={{ flex: 1 }}
+              title="Record every step to an animated GIF you can drop into slides"
+            >
+              {isExporting
+                ? `Recording GIF… ${Math.round(exportProgress * 100)}%`
+                : "Export GIF"}
             </button>
           </div>
 
